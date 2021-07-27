@@ -13,9 +13,9 @@ pub enum PyFunction {
 pub const TEXT: u16 = 1;
 pub const STATIC_FILE: u16 = 1;
 
-fn conv_py_to_json_string(v: Py<PyAny>) -> Result<Value, PythonizeError> {
-    let gil = Python::acquire_gil();
-    let py = gil.python();
+#[inline]
+fn conv_py_to_json_string(v: &Py<PyAny>) -> Result<Value, PythonizeError> {
+    let py = unsafe { Python::assume_gil_acquired() };
     depythonize(v.as_ref(py))
 }
 
@@ -40,7 +40,7 @@ impl Response {
 
     #[staticmethod]
     pub fn newjson(response_type: u16, _padding: u8, meta: Py<PyAny>) -> PyResult<Self> {
-        let data = match conv_py_to_json_string(meta) {
+        let data = match conv_py_to_json_string(&meta) {
             Ok(res) => res,
             Err(_e) => return Err(PyValueError::new_err("Cannot parse json")),
         };

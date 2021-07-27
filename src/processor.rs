@@ -31,12 +31,12 @@ pub fn apply_headers(response: &mut HttpResponseBuilder, headers: &Arc<Headers>)
 /// There can also be PyError due to any mis processing of the files
 ///
 pub async fn handle_request(
-    function: PyFunction,
+    function: &PyFunction,
     headers: &Arc<Headers>,
     payload: &mut web::Payload,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
-    let contents = execute_function(function, payload, req).await?;
+    let contents = execute_function(&function, payload, req).await?;
 
     if let Some(json) = contents.json {
         let mut response = HttpResponse::Ok();
@@ -49,13 +49,13 @@ pub async fn handle_request(
     }
 
     let mut response = HttpResponse::Ok();
-    apply_headers(&mut response, headers);
+    //  apply_headers(&mut response, headers);
     Ok(response.body(contents.meta))
 }
 
 #[inline]
 async fn execute_function(
-    function: PyFunction,
+    function: &PyFunction,
     payload: &mut web::Payload,
     req: &HttpRequest,
 ) -> Result<Response> {
@@ -90,28 +90,23 @@ async fn execute_function(
                 pyo3_asyncio::into_future(coro?)
             })?;
             let output = output.await?;
-            let res = Python::with_gil(|py| -> PyResult<Response> {
-                let reffer: Response = output.extract(py)?;
-                Ok(reffer)
-            })?;
 
-            Ok(res)
+            let py = unsafe { Python::assume_gil_acquired() };
+            let reffer: Response = output.extract(py)?;
+            Ok(reffer)
         }
         PyFunction::SyncFunction(handler) => {
-            tokio::task::spawn_blocking(move || {
-                Python::with_gil(|py| {
-                    let output: Py<PyAny> = match data {
-                        Some(res) => {
-                            let data = res.into_py(py);
-                            handler.call1(py, (&data,))?
-                        }
-                        None => handler.call0(py)?,
-                    };
-                    let reffer: Response = output.extract(py)?;
-                    Ok(reffer)
-                })
-            })
-            .await?
+            let res: Py<PyAny> = Python::with_gil(|py| match data {
+                Some(res) => {
+                    let data = res.into_py(py);
+                    handler.call1(py, (&data,))
+                }
+                None => handler.call0(py),
+            })?;
+
+            let py = unsafe { Python::assume_gil_acquired() };
+            let reffer: Response = res.extract(py)?;
+            Ok(reffer)
         }
     }
 }

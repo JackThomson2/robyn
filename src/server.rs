@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::Arc;
 use std::thread;
 // pyO3 module
+use actix_http::KeepAlive;
 use actix_web::*;
 use dashmap::DashMap;
 use pyo3::prelude::*;
@@ -55,6 +56,8 @@ impl Server {
                         .app_data(web::Data::new(headers.clone()))
                         .default_service(web::route().to(index))
                 })
+                .keep_alive(KeepAlive::Os)
+                .client_timeout(0)
                 .bind(addr)
                 .unwrap()
                 .run()
@@ -81,7 +84,7 @@ impl Server {
     /// Add a new route to the routing tables
     /// can be called after the server has been started
     pub fn add_route(&self, route_type: &str, route: &str, handler: Py<PyAny>, is_async: bool) {
-        println!("Route added for {} {} ", route_type, route);
+        println!("Route added for {:4} {} ", route_type, route);
         self.router.add_route(route_type, route, handler, is_async);
     }
 }
@@ -94,9 +97,9 @@ async fn index(
     mut payload: web::Payload,
     req: HttpRequest,
 ) -> impl Responder {
-    match router.get_route(req.method().clone(), req.uri().path()) {
+    match router.get_route(&req.method(), req.uri().path()) {
         Some(handler_function) => {
-            match handle_request(handler_function, &headers, &mut payload, &req).await {
+            match handle_request(&handler_function, &headers, &mut payload, &req).await {
                 Ok(res) => res,
                 Err(err) => {
                     println!("Error: {:?}", err);

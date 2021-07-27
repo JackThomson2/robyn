@@ -27,13 +27,13 @@ impl Router {
     }
 
     #[inline]
-    fn get_relevant_map(&self, route: Method) -> Option<&DashMap<String, PyFunction>> {
+    fn get_relevant_map(&self, route: &Method) -> Option<&DashMap<String, PyFunction>> {
         match route {
-            Method::GET => Some(&self.get_routes),
-            Method::POST => Some(&self.post_routes),
-            Method::PUT => Some(&self.put_routes),
-            Method::DELETE => Some(&self.delete_routes),
-            Method::PATCH => Some(&self.patch_routes),
+            &Method::GET => Some(&self.get_routes),
+            &Method::POST => Some(&self.post_routes),
+            &Method::PUT => Some(&self.put_routes),
+            &Method::DELETE => Some(&self.delete_routes),
+            &Method::PATCH => Some(&self.patch_routes),
             _ => None,
         }
     }
@@ -45,7 +45,7 @@ impl Router {
             Err(_) => return None,
         };
 
-        self.get_relevant_map(method)
+        self.get_relevant_map(&method)
     }
 
     // Checks if the functions is an async function
@@ -65,7 +65,7 @@ impl Router {
         table.insert(route.to_string(), function);
     }
 
-    pub fn get_route(&self, route_method: Method, route: &str) -> Option<PyFunction> {
+    pub fn get_route(&self, route_method: &Method, route: &str) -> Option<PyFunction> {
         let table = self.get_relevant_map(route_method)?;
         Some(table.get(route)?.clone())
     }

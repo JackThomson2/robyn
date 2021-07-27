@@ -8,8 +8,8 @@ app = FastAPI()
 async def root():
     return {"message": "Hello World"}
 
+
 @app.get("/sleeper")
 async def sleeper():
     await asyncio.sleep(5)
     return {"message": "Hello World"}
-

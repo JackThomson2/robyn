@@ -1168,6 +1168,7 @@ name = "robyn"
 version = "0.5.3"
 dependencies = [
  "actix-files",
+ "actix-http",
  "actix-web",
  "anyhow",
  "dashmap",

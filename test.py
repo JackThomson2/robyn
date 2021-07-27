@@ -13,6 +13,7 @@ async def h():
     message = "Called " + str(callCount) + " times"
     return text(message)
 
+
 @app.get("/sync")
 def non():
     global callCount
@@ -24,13 +25,15 @@ def non():
 @app.get("/test")
 async def test():
     import os
+
     path = "./index.html"
     return static_file(path)
 
 
 @app.get("/jsonify")
-async def json():
+def json():
     return jsonify({"hello": "world"})
+
 
 @app.post("/post")
 async def postreq(body):
