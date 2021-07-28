@@ -7,8 +7,12 @@ use server::Server;
 use types::Response;
 
 // pyO3 module
+use mimalloc::MiMalloc;
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[pyfunction]
 pub fn start_server() {

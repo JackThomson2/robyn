@@ -91,6 +91,7 @@ impl Server {
 
 /// This is our service handler. It receives a Request, routes on it
 /// path, and returns a Future of a Response.
+#[inline]
 async fn index(
     router: web::Data<Arc<Router>>,
     headers: web::Data<Arc<Headers>>,

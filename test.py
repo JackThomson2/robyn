@@ -5,6 +5,8 @@ app = Robyn(__file__)
 
 callCount = 0
 
+staticText = text("STATIC")
+
 
 @app.get("/")
 async def h():
@@ -20,6 +22,12 @@ def non():
     callCount += 1
     message = "Called " + str(callCount) + " times"
     return text(message)
+
+
+@app.get("/static")
+def static():
+    global staticText
+    return staticText
 
 
 @app.get("/test")

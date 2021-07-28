@@ -50,6 +50,7 @@ impl Router {
 
     // Checks if the functions is an async function
     // Inserts them in the router according to their nature(CoRoutine/SyncFunction)
+    #[inline]
     pub fn add_route(&self, route_type: &str, route: &str, handler: Py<PyAny>, is_async: bool) {
         let table = match self.get_relevant_map_str(route_type) {
             Some(table) => table,
@@ -65,6 +66,7 @@ impl Router {
         table.insert(route.to_string(), function);
     }
 
+    #[inline]
     pub fn get_route(&self, route_method: &Method, route: &str) -> Option<PyFunction> {
         let table = self.get_relevant_map(route_method)?;
         Some(table.get(route)?.clone())
