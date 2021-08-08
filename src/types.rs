@@ -1,3 +1,7 @@
+use std::path::PathBuf;
+
+use actix_files::NamedFile;
+use actix_web::{HttpRequest, HttpResponse};
 use anyhow::Result;
 use dashmap::DashMap;
 use pyo3::{exceptions::PyValueError, prelude::*};
@@ -50,6 +54,25 @@ impl Response {
             meta: "JSON".to_string(),
             json: Some(data),
         })
+    }
+}
+
+impl Response {
+    #[inline]
+    pub fn make_response(&self, req: &HttpRequest) -> Result<HttpResponse> {
+        if let Some(json) = &self.json {
+            let mut response = HttpResponse::Ok();
+            return Ok(response.json(json));
+        }
+
+        if self.response_type == STATIC_FILE {
+            let path: PathBuf = self.meta.clone().into();
+            return Ok(NamedFile::open(path)?.into_response(req));
+        }
+
+        let mut response = HttpResponse::Ok();
+        //  apply_headers(&mut response, headers);
+        Ok(response.body(&self.meta))
     }
 }
 

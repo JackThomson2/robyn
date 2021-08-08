@@ -1,6 +1,7 @@
 use crate::processor::{apply_headers, handle_request};
 use crate::router::Router;
 use crate::types::Headers;
+use std::cell::Cell;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::Arc;
@@ -51,13 +52,17 @@ impl Server {
                 let addr = format!("127.0.0.1:{}", port);
 
                 HttpServer::new(move || {
+                    let gil = Cell::new(Python::acquire_gil());
+
                     App::new()
                         .app_data(web::Data::new(router.clone()))
                         .app_data(web::Data::new(headers.clone()))
+                        .app_data(web::Data::new(gil))
                         .default_service(web::route().to(index))
                 })
                 .keep_alive(KeepAlive::Os)
                 .client_timeout(0)
+                .workers(1)
                 .bind(addr)
                 .unwrap()
                 .run()
@@ -95,12 +100,13 @@ impl Server {
 async fn index(
     router: web::Data<Arc<Router>>,
     headers: web::Data<Arc<Headers>>,
+    python: web::Data<Cell<GILGuard>>,
     mut payload: web::Payload,
     req: HttpRequest,
 ) -> impl Responder {
     match router.get_route(&req.method(), req.uri().path()) {
         Some(handler_function) => {
-            match handle_request(&handler_function, &headers, &mut payload, &req).await {
+            match handle_request(&handler_function, &headers, &python, &mut payload, &req).await {
                 Ok(res) => res,
                 Err(err) => {
                     println!("Error: {:?}", err);

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::{cell::Cell, path::PathBuf};
 
 use actix_files::NamedFile;
 use actix_web::{http::Method, web, HttpRequest, HttpResponse, HttpResponseBuilder};
@@ -33,32 +33,20 @@ pub fn apply_headers(response: &mut HttpResponseBuilder, headers: &Arc<Headers>)
 pub async fn handle_request(
     function: &PyFunction,
     headers: &Arc<Headers>,
+    python: &Cell<GILGuard>,
     payload: &mut web::Payload,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
-    let contents = execute_function(&function, payload, req).await?;
-
-    if let Some(json) = contents.json {
-        let mut response = HttpResponse::Ok();
-        return Ok(response.json(json));
-    }
-
-    if contents.response_type == STATIC_FILE {
-        let path: PathBuf = contents.meta.into();
-        return Ok(NamedFile::open(path)?.into_response(req));
-    }
-
-    let mut response = HttpResponse::Ok();
-    //  apply_headers(&mut response, headers);
-    Ok(response.body(contents.meta))
+    execute_function(&function, payload, python, req).await
 }
 
 #[inline]
 async fn execute_function(
     function: &PyFunction,
     payload: &mut web::Payload,
+    _python: &Cell<GILGuard>,
     req: &HttpRequest,
-) -> Result<Response> {
+) -> Result<HttpResponse> {
     let mut data: Option<Vec<u8>> = None;
 
     if req.method() == Method::POST {
@@ -77,7 +65,8 @@ async fn execute_function(
 
     match function {
         PyFunction::CoRoutine(handler) => {
-            let output = Python::with_gil(|py| {
+            let py = unsafe { Python::assume_gil_acquired() };
+            let output = {
                 let handler = handler.as_ref(py);
 
                 let coro: PyResult<&PyAny> = match data {
@@ -88,25 +77,23 @@ async fn execute_function(
                     None => handler.call0(),
                 };
                 pyo3_asyncio::into_future(coro?)
-            })?;
+            }?;
             let output = output.await?;
-
-            let py = unsafe { Python::assume_gil_acquired() };
             let reffer: Response = output.extract(py)?;
-            Ok(reffer)
+            reffer.make_response(req)
         }
         PyFunction::SyncFunction(handler) => {
-            let res: Py<PyAny> = Python::with_gil(|py| match data {
+            let py = unsafe { Python::assume_gil_acquired() };
+            let res: Py<PyAny> = match data {
                 Some(res) => {
                     let data = res.into_py(py);
                     handler.call1(py, (&data,))
                 }
                 None => handler.call0(py),
-            })?;
+            }?;
 
-            let py = unsafe { Python::assume_gil_acquired() };
-            let reffer: Response = res.extract(py)?;
-            Ok(reffer)
+            let response: Response = res.extract(py)?;
+            response.make_response(req)
         }
     }
 }
