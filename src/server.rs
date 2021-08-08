@@ -1,6 +1,9 @@
 use crate::processor::{apply_headers, handle_request};
 use crate::router::Router;
+use crate::shared_socket::SocketHeld;
 use crate::types::Headers;
+use std::convert::TryInto;
+use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 use std::sync::Arc;
@@ -14,6 +17,7 @@ use pyo3::types::PyAny;
 
 // hyper modules
 use pyo3_asyncio::run_forever;
+use socket2::{Domain, Protocol, Socket, Type};
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -33,40 +37,51 @@ impl Server {
         }
     }
 
-    pub fn start(&mut self, py: Python, port: u16) {
+    pub fn start(&mut self, py: Python, socket: &PyCell<SocketHeld>, name: String) -> PyResult<()> {
         if STARTED
             .compare_exchange(false, true, SeqCst, Relaxed)
             .is_err()
         {
             println!("Already running...");
-            return;
+            return Ok(());
         }
+
+        let borrow = socket.try_borrow_mut()?;
+        let held_socket: &SocketHeld = &*borrow;
+
+        let raw_socket = held_socket.get_socket();
+        println!("Got our socket {:?}", raw_socket);
 
         let router = self.router.clone();
         let headers = self.headers.clone();
 
-        thread::spawn(move || {
-            //init_current_thread_once();
-            actix_web::rt::System::new().block_on(async move {
-                let addr = format!("127.0.0.1:{}", port);
+        py.allow_threads(move || {
+            let res = thread::spawn(move || {
+                println!("Thread started...");
+                //init_current_thread_once();
+                let _res: Result<()> = actix_web::rt::System::new().block_on(async move {
+                    HttpServer::new(move || {
+                        App::new()
+                            .app_data(web::Data::new(router.clone()))
+                            .app_data(web::Data::new(headers.clone()))
+                            .default_service(web::route().to(index))
+                    })
+                    .keep_alive(KeepAlive::Os)
+                    .workers(1)
+                    //.max_connection_rate(1)
+                    .client_timeout(0)
+                    .listen(raw_socket.try_into()?)?
+                    .run()
+                    .await?;
 
-                HttpServer::new(move || {
-                    App::new()
-                        .app_data(web::Data::new(router.clone()))
-                        .app_data(web::Data::new(headers.clone()))
-                        .default_service(web::route().to(index))
-                })
-                .keep_alive(KeepAlive::Os)
-                .client_timeout(0)
-                .bind(addr)
-                .unwrap()
-                .run()
-                .await
-                .unwrap();
+                    Ok(())
+                });
             });
+
+            res.join().unwrap();
         });
 
-        run_forever(py).unwrap()
+        Ok(())
     }
 
     /// Adds a new header to our concurrent hashmap

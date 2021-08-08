@@ -4,30 +4,43 @@ import argparse
 import asyncio
 import inspect
 
-from .robyn import Server
+from .robyn import Server, SocketHeld, prepare_to_run
 from .responses import static_file, jsonify, text
 from .dev_event_handler import EventHandler
 from .log_colors import Colors
 
-
+from multiprocessing import Process
 from watchdog.observers import Observer
 
 
+def spawned_process(handlers, socket, name):
+    # create a server
+    server = Server()
+    prepare_to_run()
+
+    for i in handlers:
+        server.add_route(i[0], i[1], i[2], i[3])
+
+    server.start(socket, name)
+
+
 class Robyn:
-    """This is the python wrapper for the Robyn binaries.
-    """
+    """This is the python wrapper for the Robyn binaries."""
+
     def __init__(self, file_object):
         directory_path = os.path.dirname(os.path.abspath(file_object))
         self.file_path = file_object
         self.directory_path = directory_path
-        self.server = Server(directory_path)
         self.dev = self._is_dev()
+        self.routes = []
+        self.headers = []
 
     def _is_dev(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--dev', default=False, type=lambda x: (str(x).lower() == 'true'))
+        parser.add_argument(
+            "--dev", default=False, type=lambda x: (str(x).lower() == "true")
+        )
         return parser.parse_args().dev
-
 
     def add_route(self, route_type, endpoint, handler):
         """
@@ -40,28 +53,41 @@ class Robyn:
 
         """ We will add the status code here only
         """
-        self.server.add_route(
-            route_type, endpoint, handler, asyncio.iscoroutinefunction(handler)
+        self.routes.append(
+            (route_type, endpoint, handler, asyncio.iscoroutinefunction(handler))
         )
 
     def add_header(self, key, value):
-        self.server.add_header(key, value)
+        self.headers.append((key, value))
 
     def remove_header(self, key):
-        self.server.remove_header(key)
-    
+        self.headers.remove(key)
+
     def start(self, port):
         """
         [Starts the server]
 
         :param port [int]: [reperesents the port number at which the server is listening]
         """
+
+        socket = SocketHeld(f"0.0.0.0:{port}", port)
+
         if not self.dev:
-            self.server.start(port)
+            for i in range(2):
+                copied = socket.try_clone()
+                p = Process(
+                    target=spawned_process,
+                    args=(self.routes, copied, f"Process {i}"),
+                )
+                p.start()
+
+            input("Press Cntrl + C to stop \n")
         else:
             event_handler = EventHandler(self.file_path)
             event_handler.start_server_first_time()
-            print(f"{Colors.OKBLUE}Dev server initialised with the directory_path : {self.directory_path}{Colors.ENDC}")
+            print(
+                f"{Colors.OKBLUE}Dev server initialised with the directory_path : {self.directory_path}{Colors.ENDC}"
+            )
             observer = Observer()
             observer.schedule(event_handler, path=self.directory_path, recursive=True)
             observer.start()
@@ -78,6 +104,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("GET", endpoint, handler)
 
@@ -89,6 +116,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             sig = inspect.signature(handler)
             params = len(sig.parameters)
@@ -105,6 +133,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("PUT", endpoint, handler)
 
@@ -116,6 +145,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("DELETE", endpoint, handler)
 
@@ -127,7 +157,8 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("PATCH", endpoint, handler)
-            
+
         return inner

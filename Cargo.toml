@@ -20,7 +20,8 @@ features = ["extension-module"]
 [dependencies.pyo3-asyncio]
 git = "https://github.com/awestlake87/pyo3-asyncio"
 branch = "dependabot/cargo/pyo3-0.14"
-features = []
+# path = "../pyo3-asyncio"
+features = ["tokio-runtime"]
 
 [dependencies]
 tokio = { version = "1.7.0", features = ["full"] }
@@ -34,6 +35,7 @@ serde = "1.0.126"
 serde_json = "1.0.64"
 pythonize = "0.14.0"
 mimalloc = { version = "*", default-features = false }
+socket2 = { version = "0.4.1", features = ["all"] }
 
 [package.metadata.maturin]
 name = "robyn"
