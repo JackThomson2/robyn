@@ -1,13 +1,10 @@
-use std::sync::Arc;
-use std::{cell::Cell, path::PathBuf};
-
-use actix_files::NamedFile;
 use actix_web::{http::Method, web, HttpRequest, HttpResponse, HttpResponseBuilder};
 use anyhow::{bail, Result};
+use std::sync::Arc;
 // pyO3 module
-use crate::types::{Headers, PyFunction, Response, STATIC_FILE};
+use crate::types::{Headers, PyFunction, Response};
 use futures_util::stream::StreamExt;
-use pyo3::prelude::*;
+use pyo3::{prelude::*, GILPool};
 
 /// @TODO make configurable
 const MAX_SIZE: usize = 10_000;
@@ -30,21 +27,10 @@ pub fn apply_headers(response: &mut HttpResponseBuilder, headers: &Arc<Headers>)
 /// When the route is not found. It should check if the 404 route exist and then serve it back
 /// There can also be PyError due to any mis processing of the files
 ///
+#[inline(always)]
 pub async fn handle_request(
     function: &PyFunction,
-    headers: &Arc<Headers>,
-    python: &Cell<GILGuard>,
     payload: &mut web::Payload,
-    req: &HttpRequest,
-) -> Result<HttpResponse> {
-    execute_function(&function, payload, python, req).await
-}
-
-#[inline]
-async fn execute_function(
-    function: &PyFunction,
-    payload: &mut web::Payload,
-    _python: &Cell<GILGuard>,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
     let mut data: Option<Vec<u8>> = None;
@@ -78,12 +64,14 @@ async fn execute_function(
                 };
                 pyo3_asyncio::into_future(coro?)
             }?;
+
             let output = output.await?;
             let reffer: Response = output.extract(py)?;
             reffer.make_response(req)
         }
         PyFunction::SyncFunction(handler) => {
             let py = unsafe { Python::assume_gil_acquired() };
+
             let res: Py<PyAny> = match data {
                 Some(res) => {
                     let data = res.into_py(py);

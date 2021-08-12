@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use actix_files::NamedFile;
 use actix_web::{HttpRequest, HttpResponse};
 use anyhow::Result;
@@ -8,7 +6,7 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 use pythonize::{depythonize, PythonizeError};
 use serde_json::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum PyFunction {
     CoRoutine(Py<PyAny>),
     SyncFunction(Py<PyAny>),
@@ -33,6 +31,7 @@ pub struct Response {
 
 #[pymethods]
 impl Response {
+    #[inline]
     #[new]
     pub fn new(response_type: u16, meta: String) -> Self {
         Response {
@@ -42,6 +41,7 @@ impl Response {
         }
     }
 
+    #[inline]
     #[staticmethod]
     pub fn newjson(response_type: u16, _padding: u8, meta: Py<PyAny>) -> PyResult<Self> {
         let data = match conv_py_to_json_string(&meta) {
@@ -66,8 +66,7 @@ impl Response {
         }
 
         if self.response_type == STATIC_FILE {
-            let path: PathBuf = self.meta.clone().into();
-            return Ok(NamedFile::open(path)?.into_response(req));
+            return Ok(NamedFile::open(&self.meta)?.into_response(req));
         }
 
         let mut response = HttpResponse::Ok();

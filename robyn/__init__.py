@@ -14,8 +14,8 @@ from watchdog.observers import Observer
 
 
 class Robyn:
-    """This is the python wrapper for the Robyn binaries.
-    """
+    """This is the python wrapper for the Robyn binaries."""
+
     def __init__(self, file_object):
         directory_path = os.path.dirname(os.path.abspath(file_object))
         self.file_path = file_object
@@ -25,9 +25,10 @@ class Robyn:
 
     def _is_dev(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--dev', default=False, type=lambda x: (str(x).lower() == 'true'))
+        parser.add_argument(
+            "--dev", default=False, type=lambda x: (str(x).lower() == "true")
+        )
         return parser.parse_args().dev
-
 
     def add_route(self, route_type, endpoint, handler):
         """
@@ -49,7 +50,7 @@ class Robyn:
 
     def remove_header(self, key):
         self.server.remove_header(key)
-    
+
     def start(self, port):
         """
         [Starts the server]
@@ -58,10 +59,13 @@ class Robyn:
         """
         if not self.dev:
             self.server.start(port)
+            input("Press Enter to STOP...")
         else:
             event_handler = EventHandler(self.file_path)
             event_handler.start_server_first_time()
-            print(f"{Colors.OKBLUE}Dev server initialised with the directory_path : {self.directory_path}{Colors.ENDC}")
+            print(
+                f"{Colors.OKBLUE}Dev server initialised with the directory_path : {self.directory_path}{Colors.ENDC}"
+            )
             observer = Observer()
             observer.schedule(event_handler, path=self.directory_path, recursive=True)
             observer.start()
@@ -78,6 +82,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("GET", endpoint, handler)
 
@@ -89,6 +94,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             sig = inspect.signature(handler)
             params = len(sig.parameters)
@@ -105,6 +111,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("PUT", endpoint, handler)
 
@@ -116,6 +123,7 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("DELETE", endpoint, handler)
 
@@ -127,7 +135,8 @@ class Robyn:
 
         :param endpoint [str]: [endpoint to server the route]
         """
+
         def inner(handler):
             self.add_route("PATCH", endpoint, handler)
-            
+
         return inner

@@ -1,17 +1,16 @@
 use crate::processor::{apply_headers, handle_request};
-use crate::router::Router;
+use crate::router::{Router, Routing};
 use crate::types::Headers;
-use std::cell::Cell;
+use std::mem::ManuallyDrop;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 // pyO3 module
-use actix_http::KeepAlive;
 use actix_web::*;
 use dashmap::DashMap;
-use pyo3::prelude::*;
 use pyo3::types::PyAny;
+use pyo3::{prelude::*, GILPool};
 
 // hyper modules
 use pyo3_asyncio::run_forever;
@@ -46,22 +45,25 @@ impl Server {
         let router = self.router.clone();
         let headers = self.headers.clone();
 
+        let cores = core_affinity::get_core_ids().unwrap_or_else(Vec::new);
+        let cores = Arc::new(Mutex::new(cores));
+
         thread::spawn(move || {
             //init_current_thread_once();
             actix_web::rt::System::new().block_on(async move {
-                let addr = format!("127.0.0.1:{}", port);
+                let addr = format!("0.0.0.0:{}", port);
 
                 HttpServer::new(move || {
-                    let gil = Cell::new(Python::acquire_gil());
+                    if let Some(core) = cores.lock().unwrap().pop() {
+                        core_affinity::set_for_current(core);
+                    }
+                    let _py = ManuallyDrop::new(Python::acquire_gil());
 
                     App::new()
-                        .app_data(web::Data::new(router.clone()))
                         .app_data(web::Data::new(headers.clone()))
-                        .app_data(web::Data::new(gil))
+                        .app_data(web::Data::new(Routing::new(&router)))
                         .default_service(web::route().to(index))
                 })
-                .keep_alive(KeepAlive::Os)
-                .client_timeout(0)
                 .workers(1)
                 .bind(addr)
                 .unwrap()
@@ -88,7 +90,7 @@ impl Server {
 
     /// Add a new route to the routing tables
     /// can be called after the server has been started
-    pub fn add_route(&self, route_type: &str, route: &str, handler: Py<PyAny>, is_async: bool) {
+    pub fn add_route(&mut self, route_type: &str, route: &str, handler: Py<PyAny>, is_async: bool) {
         println!("Route added for {:4} {} ", route_type, route);
         self.router.add_route(route_type, route, handler, is_async);
     }
@@ -98,27 +100,25 @@ impl Server {
 /// path, and returns a Future of a Response.
 #[inline]
 async fn index(
-    router: web::Data<Arc<Router>>,
-    headers: web::Data<Arc<Headers>>,
-    python: web::Data<Cell<GILGuard>>,
+    router: web::Data<Routing>,
     mut payload: web::Payload,
     req: HttpRequest,
 ) -> impl Responder {
-    match router.get_route(&req.method(), req.uri().path()) {
+    match router.get_route(req.method(), req.uri().path()) {
         Some(handler_function) => {
-            match handle_request(&handler_function, &headers, &python, &mut payload, &req).await {
+            match handle_request(handler_function, &mut payload, &req).await {
                 Ok(res) => res,
                 Err(err) => {
                     println!("Error: {:?}", err);
                     let mut response = HttpResponse::InternalServerError();
-                    apply_headers(&mut response, &headers);
+                    // apply_headers(&mut response, &headers);
                     response.finish()
                 }
             }
         }
         None => {
             let mut response = HttpResponse::NotFound();
-            apply_headers(&mut response, &headers);
+            // apply_headers(&mut response, &headers);
             response.finish()
         }
     }
