@@ -1,5 +1,5 @@
 use crate::processor::{apply_headers, handle_request};
-use crate::router::Router;
+use crate::router::{Router, Routing};
 use crate::shared_socket::SocketHeld;
 use crate::types::Headers;
 use std::convert::TryInto;
@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
 // hyper modules
-use pyo3_asyncio::run_forever;
+use pyo3_asyncio::{get_event_loop, run_forever, try_init};
 use socket2::{Domain, Protocol, Socket, Type};
 
 static STARTED: AtomicBool = AtomicBool::new(false);
@@ -55,30 +55,34 @@ impl Server {
         let router = self.router.clone();
         let headers = self.headers.clone();
 
-        py.allow_threads(move || {
-            let res = thread::spawn(move || {
-                println!("Thread started...");
-                //init_current_thread_once();
-                let _res: Result<()> = actix_web::rt::System::new().block_on(async move {
-                    HttpServer::new(move || {
-                        App::new()
-                            .app_data(web::Data::new(router.clone()))
-                            .app_data(web::Data::new(headers.clone()))
-                            .default_service(web::route().to(index))
-                    })
-                    .keep_alive(KeepAlive::Os)
-                    .workers(1)
-                    //.max_connection_rate(1)
-                    .client_timeout(0)
-                    .listen(raw_socket.try_into()?)?
-                    .run()
-                    .await?;
+        thread::spawn(move || {
+            println!("Thread started...");
+            //init_current_thread_once();
+            let _res: Result<()> = actix_web::rt::System::new().block_on(async move {
+                HttpServer::new(move || {
+                    let Gil = Python::acquire_gil();
 
-                    Ok(())
-                });
+                    {
+                        let py = Gil.python();
+                        pyo3_asyncio::try_init(py).unwrap();
+                    }
+
+                    App::new()
+                        .app_data(web::Data::new(Routing::new(&router.clone())))
+                        .app_data(web::Data::new(headers.clone()))
+                        .app_data(web::Data::new(Gil))
+                        .default_service(web::route().to(index))
+                })
+                .keep_alive(KeepAlive::Os)
+                .workers(1)
+                //.max_connection_rate(1)
+                .client_timeout(0)
+                .listen(raw_socket.try_into()?)?
+                .run()
+                .await?;
+
+                Ok(())
             });
-
-            res.join().unwrap();
         });
 
         Ok(())
@@ -108,14 +112,14 @@ impl Server {
 /// path, and returns a Future of a Response.
 #[inline]
 async fn index(
-    router: web::Data<Arc<Router>>,
+    router: web::Data<Routing>,
     headers: web::Data<Arc<Headers>>,
     mut payload: web::Payload,
     req: HttpRequest,
 ) -> impl Responder {
     match router.get_route(&req.method(), req.uri().path()) {
         Some(handler_function) => {
-            match handle_request(&handler_function, &headers, &mut payload, &req).await {
+            match handle_request(handler_function, &headers, &mut payload, &req).await {
                 Ok(res) => res,
                 Err(err) => {
                     println!("Error: {:?}", err);

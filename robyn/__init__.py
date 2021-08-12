@@ -14,6 +14,13 @@ from watchdog.observers import Observer
 
 
 def spawned_process(handlers, socket, name):
+    import asyncio
+    import uvloop
+
+    uvloop.install()
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     # create a server
     server = Server()
     prepare_to_run()
@@ -22,6 +29,7 @@ def spawned_process(handlers, socket, name):
         server.add_route(i[0], i[1], i[2], i[3])
 
     server.start(socket, name)
+    asyncio.get_event_loop().run_forever()
 
 
 class Robyn:

@@ -36,29 +36,6 @@ pub async fn handle_request(
     payload: &mut web::Payload,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
-    let contents = execute_function(&function, payload, req).await?;
-
-    if let Some(json) = contents.json {
-        let mut response = HttpResponse::Ok();
-        return Ok(response.json(json));
-    }
-
-    if contents.response_type == STATIC_FILE {
-        let path: PathBuf = contents.meta.into();
-        return Ok(NamedFile::open(path)?.into_response(req));
-    }
-
-    let mut response = HttpResponse::Ok();
-    //  apply_headers(&mut response, headers);
-    Ok(response.body(contents.meta))
-}
-
-#[inline]
-async fn execute_function(
-    function: &PyFunction,
-    payload: &mut web::Payload,
-    req: &HttpRequest,
-) -> Result<Response> {
     let mut data: Option<Vec<u8>> = None;
 
     if req.method() == Method::POST {
@@ -77,7 +54,7 @@ async fn execute_function(
 
     match function {
         PyFunction::CoRoutine(handler) => {
-            let output = Python::with_gil(|py| {
+            let output = Python::with_gil(move |py| {
                 let handler = handler.as_ref(py);
 
                 let coro: PyResult<&PyAny> = match data {
@@ -89,24 +66,25 @@ async fn execute_function(
                 };
                 pyo3_asyncio::into_future(coro?)
             })?;
-            let output = output.await?;
 
+            let output = output.await?;
             let py = unsafe { Python::assume_gil_acquired() };
             let reffer: Response = output.extract(py)?;
-            Ok(reffer)
+            reffer.make_response(req)
         }
         PyFunction::SyncFunction(handler) => {
-            let res: Py<PyAny> = Python::with_gil(|py| match data {
+            let py = unsafe { Python::assume_gil_acquired() };
+
+            let res: Py<PyAny> = match data {
                 Some(res) => {
                     let data = res.into_py(py);
                     handler.call1(py, (&data,))
                 }
                 None => handler.call0(py),
-            })?;
+            }?;
 
-            let py = unsafe { Python::assume_gil_acquired() };
-            let reffer: Response = res.extract(py)?;
-            Ok(reffer)
+            let response: Response = res.extract(py)?;
+            response.make_response(req)
         }
     }
 }
